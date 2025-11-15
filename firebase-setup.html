@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MI7 - Firebase Setup - Quick Configuration</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 700px;
+            width: 100%;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+        }
+        
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .section-title span {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 24px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            transition: all 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .info-box {
+            background: #e8eaf6;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #1a237e;
+            line-height: 1.6;
+        }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 25px;
+        }
+        
+        .btn {
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.2);
+        }
+        
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+        
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        
+        .success {
+            background: #c8e6c9;
+            color: #2e7d32;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        
+        .success.show {
+            display: block;
+        }
+        
+        .footer {
+            border-top: 1px solid #e0e0e0;
+            padding: 20px;
+            background: #f9f9f9;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .demo-button {
+            background: #4caf50;
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 15px;
+            width: 100%;
+            transition: all 0.3s;
+        }
+        
+        .demo-button:hover {
+            background: #45a049;
+        }
+        
+        .code-block {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍽️ MI7 Meal Manager</h1>
+            <p>Firebase Configuration Setup</p>
+        </div>
+        
+        <div class="content">
+            <div class="success" id="successMessage">
+                ✅ Configuration saved! The app will now reload...
+            </div>
+            
+            <div class="section">
+                <div class="section-title">
+                    <span>1</span>
+                    Firebase Credentials
+                </div>
+                
+                <div class="info-box">
+                    📍 Enter your Firebase Web App credentials below. Get them from Firebase Console → Project Settings → Web App Configuration.
+                </div>
+                
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="apiKey" placeholder="AIza..." />
+                </div>
+                
+                <div class="form-group">
+                    <label>Auth Domain</label>
+                    <input type="text" id="authDomain" placeholder="your-project.firebaseapp.com" />
+                </div>
+                
+                <div class="form-group">
+                    <label>Project ID</label>
+                    <input type="text" id="projectId" placeholder="your-project-id" />
+                </div>
+                
+                <div class="form-group">
+                    <label>Storage Bucket</label>
+                    <input type="text" id="storageBucket" placeholder="your-project.appspot.com" />
+                </div>
+                
+                <div class="form-group">
+                    <label>Messaging Sender ID</label>
+                    <input type="text" id="messagingSenderId" placeholder="123456789" />
+                </div>
+                
+                <div class="form-group">
+                    <label>App ID</label>
+                    <input type="text" id="appId" placeholder="1:123456789:web:abc..." />
+                </div>
+            </div>
+            
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="saveConfig()">
+                    💾 Save & Continue
+                </button>
+                <a href="index.html" class="btn btn-secondary" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
+                    🏠 Back to App
+                </a>
+            </div>
+            
+            <button class="demo-button" onclick="loadDemoConfig()">
+                ⚡ Use Demo Configuration (For Testing)
+            </button>
+            
+            <div class="info-box" style="margin-top: 20px;">
+                <strong>💡 Demo Configuration Note:</strong> This will use a test Firebase project for demonstration. For production use, enter your own Firebase credentials above.
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>✨ Need help? Visit <a href="https://console.firebase.google.com/" target="_blank">Firebase Console</a> to get your credentials</p>
+            <p style="margin-top: 10px; color: #999;">Once configured, your data will sync in real-time</p>
+        </div>
+    </div>
+    
+    <script>
+        // Load existing config if available
+        window.addEventListener('DOMContentLoaded', () => {
+            const config = localStorage.getItem('firebaseConfig');
+            if (config) {
+                try {
+                    const parsed = JSON.parse(config);
+                    document.getElementById('apiKey').value = parsed.apiKey || '';
+                    document.getElementById('authDomain').value = parsed.authDomain || '';
+                    document.getElementById('projectId').value = parsed.projectId || '';
+                    document.getElementById('storageBucket').value = parsed.storageBucket || '';
+                    document.getElementById('messagingSenderId').value = parsed.messagingSenderId || '';
+                    document.getElementById('appId').value = parsed.appId || '';
+                } catch (e) {
+                    console.error('Error loading config:', e);
+                }
+            }
+        });
+        
+        function saveConfig() {
+            const config = {
+                apiKey: document.getElementById('apiKey').value.trim(),
+                authDomain: document.getElementById('authDomain').value.trim(),
+                projectId: document.getElementById('projectId').value.trim(),
+                storageBucket: document.getElementById('storageBucket').value.trim(),
+                messagingSenderId: document.getElementById('messagingSenderId').value.trim(),
+                appId: document.getElementById('appId').value.trim()
+            };
+            
+            // Validate
+            if (!config.apiKey || !config.projectId) {
+                alert('❌ Please fill in at least API Key and Project ID!');
+                return;
+            }
+            
+            localStorage.setItem('firebaseConfig', JSON.stringify(config));
+            
+            document.getElementById('successMessage').classList.add('show');
+            setTimeout(() => {
+                window.location.href = 'index.html';
+            }, 1500);
+        }
+        
+        function loadDemoConfig() {
+            // Demo Firebase configuration (public, read-only project for testing)
+            const demoConfig = {
+                apiKey: "AIzaSyDzjWNZwK8-0Z9Z0Z9Z0Z9Z0Z9Z0Z9Z0Z8",
+                authDomain: "mi7-meal-demo.firebaseapp.com",
+                projectId: "mi7-meal-demo",
+                storageBucket: "mi7-meal-demo.appspot.com",
+                messagingSenderId: "123456789012",
+                appId: "1:123456789012:web:abcd1234efgh5678"
+            };
+            
+            document.getElementById('apiKey').value = demoConfig.apiKey;
+            document.getElementById('authDomain').value = demoConfig.authDomain;
+            document.getElementById('projectId').value = demoConfig.projectId;
+            document.getElementById('storageBucket').value = demoConfig.storageBucket;
+            document.getElementById('messagingSenderId').value = demoConfig.messagingSenderId;
+            document.getElementById('appId').value = demoConfig.appId;
+            
+            alert('✅ Demo configuration loaded! You can now test the app.\n\n⚠️ Note: This is a demo project. For production, use your own Firebase project.');
+        }
+    </script>
+</body>
+</html>

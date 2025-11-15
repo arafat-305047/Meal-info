@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MI7 Meal Manager - Home</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0d9488 0%, #115e59 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            width: 100%;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 50px;
+        }
+        
+        .header h1 {
+            font-size: 48px;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .header p {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        .card-icon {
+            background: linear-gradient(135deg, #0d9488 0%, #115e59 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            font-size: 48px;
+        }
+        
+        .card-content {
+            padding: 25px;
+        }
+        
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 10px;
+        }
+        
+        .card-desc {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 15px;
+            line-height: 1.6;
+        }
+        
+        .card-link {
+            display: inline-block;
+            color: #0d9488;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            background: #f0fdfa;
+            transition: all 0.3s;
+        }
+        
+        .card-link:hover {
+            background: #0d9488;
+            color: white;
+        }
+        
+        .status-bar {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .status-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .status-icon {
+            font-size: 20px;
+        }
+        
+        .status-text {
+            font-size: 14px;
+        }
+        
+        .quick-start {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        
+        .quick-start h2 {
+            color: #1f2937;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .step {
+            text-align: center;
+        }
+        
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            background: #0d9488;
+            color: white;
+            border-radius: 50%;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .step-title {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 5px;
+        }
+        
+        .step-desc {
+            font-size: 13px;
+            color: #6b7280;
+        }
+        
+        .footer {
+            text-align: center;
+            color: white;
+            font-size: 13px;
+            opacity: 0.8;
+        }
+        
+        .footer a {
+            color: white;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🍽️ MI7 Meal Manager</h1>
+            <p>Real-time meal and expense tracking with Firebase</p>
+        </div>
+        
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-icon">✅</span>
+                <span class="status-text">Firebase integration complete</span>
+            </div>
+            <div class="status-item">
+                <span class="status-icon">✅</span>
+                <span class="status-text">All tools and documentation ready</span>
+            </div>
+            <div class="status-item">
+                <span class="status-icon">✅</span>
+                <span class="status-text">Ready to configure and use</span>
+            </div>
+        </div>
+        
+        <!-- Quick Start -->
+        <div class="quick-start">
+            <h2>🚀 Quick Start (3 Steps)</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-title">Create Firebase Project</div>
+                    <div class="step-desc">Visit console.firebase.google.com and create a new project</div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-title">Configure Credentials</div>
+                    <div class="step-desc">Open firebase-config-setup.html and enter your credentials</div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-title">Start Using</div>
+                    <div class="step-desc">Open index.html and start managing your meals</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Grid -->
+        <div class="grid">
+            <!-- Main App -->
+            <div class="card" onclick="window.location.href='index.html'">
+                <div class="card-icon">🍽️</div>
+                <div class="card-content">
+                    <div class="card-title">Main Application</div>
+                    <div class="card-desc">Add meals, track expenses, manage contributions, and get AI meal ideas</div>
+                    <a href="index.html" class="card-link">Open App →</a>
+                </div>
+            </div>
+            
+            <!-- Configuration -->
+            <div class="card" onclick="window.location.href='firebase-config-setup.html'">
+                <div class="card-icon">⚙️</div>
+                <div class="card-content">
+                    <div class="card-title">Configure Firebase</div>
+                    <div class="card-desc">Easy setup UI to add your Firebase credentials and save them</div>
+                    <a href="firebase-config-setup.html" class="card-link">Configure →</a>
+                </div>
+            </div>
+            
+            <!-- Database Monitor -->
+            <div class="card" onclick="window.location.href='firebase-monitor.html'">
+                <div class="card-icon">📊</div>
+                <div class="card-content">
+                    <div class="card-title">Database Monitor</div>
+                    <div class="card-desc">Real-time view of your Firestore database with live statistics</div>
+                    <a href="firebase-monitor.html" class="card-link">Monitor →</a>
+                </div>
+            </div>
+            
+            <!-- Setup Guide -->
+            <div class="card" onclick="window.location.href='SETUP_SUMMARY.md'">
+                <div class="card-icon">📚</div>
+                <div class="card-content">
+                    <div class="card-title">Setup Summary</div>
+                    <div class="card-desc">Complete overview of the setup process and all available features</div>
+                    <a href="SETUP_SUMMARY.md" class="card-link">Read Guide →</a>
+                </div>
+            </div>
+            
+            <!-- Firebase Details -->
+            <div class="card" onclick="window.location.href='FIREBASE_SETUP.md'">
+                <div class="card-icon">🔥</div>
+                <div class="card-content">
+                    <div class="card-title">Firebase Setup</div>
+                    <div class="card-desc">Detailed step-by-step guide for setting up Firebase from scratch</div>
+                    <a href="FIREBASE_SETUP.md" class="card-link">Details →</a>
+                </div>
+            </div>
+            
+            <!-- Quick Reference -->
+            <div class="card" onclick="window.location.href='QUICK_REFERENCE.md'">
+                <div class="card-icon">⚡</div>
+                <div class="card-content">
+                    <div class="card-title">Quick Reference</div>
+                    <div class="card-desc">Cheat sheet with common commands, database structure, and troubleshooting</div>
+                    <a href="QUICK_REFERENCE.md" class="card-link">Reference →</a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Additional Info -->
+        <div style="background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 15px; padding: 25px; margin-bottom: 30px; color: white; border: 1px solid rgba(255, 255, 255, 0.2);">
+            <h3 style="margin-bottom: 15px;">📁 Available Files</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; font-size: 13px;">
+                <div>
+                    <strong>🎯 Main Application</strong>
+                    <div style="opacity: 0.8; margin-top: 5px;">• index.html</div>
+                </div>
+                <div>
+                    <strong>⚙️ Configuration</strong>
+                    <div style="opacity: 0.8; margin-top: 5px;">• firebase-config-setup.html</div>
+                    <div style="opacity: 0.8;">• firebase-config.js</div>
+                </div>
+                <div>
+                    <strong>📊 Monitoring</strong>
+                    <div style="opacity: 0.8; margin-top: 5px;">• firebase-monitor.html</div>
+                    <div style="opacity: 0.8;">• firebase-server.js</div>
+                </div>
+                <div>
+                    <strong>📚 Documentation</strong>
+                    <div style="opacity: 0.8; margin-top: 5px;">• README.md</div>
+                    <div style="opacity: 0.8;">• FIREBASE_SETUP.md</div>
+                    <div style="opacity: 0.8;">• QUICK_REFERENCE.md</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <p>🍽️ MI7 Meal Manager | Made with ❤️ for shared living</p>
+            <p style="margin-top: 10px;">Need help? Check the documentation files or <a href="https://firebase.google.com/docs" target="_blank">Firebase documentation</a></p>
+        </div>
+    </div>
+</body>
+
+</html>

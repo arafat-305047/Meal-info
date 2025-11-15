@@ -1,0 +1,8 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# If you need environment-specific settings for Netlify, you can add them here.
+# Example:
+# [context.production.environment]
+#   FIREBASE_API_KEY = "your_key_here"

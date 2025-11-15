@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MI7 - Meal Manager</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Load jsPDF libraries for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    
+    <!-- Load Firebase JS SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Configuration ---
+        // Default working configuration for MI7 Meal Manager
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-meal-app';
+
+        // IMPORTANT: Do NOT commit your real Firebase credentials into source control.
+        // This app will try these sources (in order):
+        // 1. ./private/firebase-config.js (local, ignored by git)
+        // 2. localStorage item 'firebaseConfig' (saved via setup UI)
+        // 3. global __firebase_config (CI/CD or Netlify env var containing stringified JSON)
+        // If none are available, the app will show the Firebase setup page.
+
+        // Start with an empty config; attempt to override from private or saved sources below.
+        let firebaseConfig = {};
+
+        // Try to load a local private config (this uses dynamic import and will succeed in
+        // local development if you create `private/firebase-config.js`). We use top-level await
+        // since this script is a module. If the private file isn't present, this will fail fast
+        // and we will fallback to other sources.
+        try {
+            const mod = await import('./private/firebase-config.js');
+            if (mod && mod.firebaseConfig && mod.firebaseConfig.apiKey) {
+                firebaseConfig = mod.firebaseConfig;
+                console.log('Using Firebase config from ./private/firebase-config.js');
+            }
+        } catch (err) {
+            // Private config not found — that's expected in CI or when not configured locally.
+        }
+
+        try {
+            // Try loading from localStorage first (user can override with their own config)
+            const savedConfig = localStorage.getItem('firebaseConfig');
+            if (savedConfig) {
+                const parsed = JSON.parse(savedConfig);
+                if (parsed.apiKey && parsed.projectId) {
+                    firebaseConfig = parsed;
+                    console.log('Using saved Firebase config from localStorage');
+                }
+            } else if (typeof __firebase_config !== 'undefined') {
+                // Fallback to environment variable (stringified JSON injected at build time)
+                const envConfig = JSON.parse(__firebase_config);
+                if (envConfig.apiKey && envConfig.projectId) {
+                    firebaseConfig = envConfig;
+                    console.log('Using Firebase config from environment');
+                }
+            }
+        } catch (error) {
+            console.warn('Could not load custom Firebase config, using defaults:', error);
+        }
+        
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- App State ---
+        let db, auth, userId;
+        let expenses = [];
+        let contributions = [];
+        let meals = [];
+    const members = ['Uday', 'Abrar', 'Muntasir', 'Arafat', 'Jobayer', 'Abid', 'Ankon'];
+    // Expose members to the global window scope so inline non-module scripts
+    // (used in the form generation in the HTML body) can access it.
+    window.members = members;
+        let memberMealCounts = {}; // Store counts for PDF export
+
+        // --- UI Elements ---
+        let summaryView, addMealView, addExpenseView, addContributionView, aiChefView;
+        let summaryLink, addMealLink, addExpenseLink, addContributionLink, aiChefLink;
+        
+        let totalExpenseEl, totalMealsEl, mealRateEl, messBalanceEl, totalContributionsEl;
+        let summaryTableBody, recentExpensesList, recentContributionsList;
+        let addMealForm, addExpenseForm, addContributionForm, userIdDisplay;
+        let downloadSummaryBtn;
+
+        // --- PDF Generation Functions ---
+        
+        /**
+         * Downloads a PDF summary of the entire mess.
+         */
+        function downloadSummaryPDF() {
+            if (!window.jspdf || !document.getElementById('summaryReportTable')) {
+                console.error("PDF generator or table not ready.");
+                return;
+            }
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            // 1. Add Title
+            doc.setFontSize(18);
+            doc.text("MI7 - Mess Summary Report", 14, 22);
+
+            // 2. Add Key Metrics
+            doc.setFontSize(12);
+            const metricsY = 32;
+            doc.text("Key Metrics:", 14, metricsY);
+            doc.setTextColor(45, 106, 102); // Teal color
+            doc.text(`Total Contributions: ৳${totalContributionsEl.textContent}`, 14, metricsY + 8);
+            doc.setTextColor(220, 38, 38); // Red color
+            doc.text(`Total Expenses: ৳${totalExpenseEl.textContent}`, 14, metricsY + 16);
+            doc.setTextColor(15, 23, 42); // Slate color
+            doc.text(`Mess Balance (Cash): ৳${messBalanceEl.textContent}`, 14, metricsY + 24);
+            doc.text(`Total Meals: ${totalMealsEl.textContent}`, 14, metricsY + 32);
+            doc.text(`Meal Rate: ৳${mealRateEl.textContent}`, 14, metricsY + 40);
+
+            // 3. Add Table
+            doc.setFontSize(14);
+            doc.text("Member Balance Sheet", 14, metricsY + 52);
+            doc.autoTable({
+                html: '#summaryReportTable',
+                startY: metricsY + 56,
+                theme: 'grid',
+                willDrawCell: (data) => {
+                    if (data.column.index === 5) { // 5 is the 6th column (Actions)
+                        return false; // Prevents drawing this cell
+                    }
+                },
+                headStyles: { fillColor: [0, 102, 94] }, // Teal header
+            });
+
+            // 4. Save
+            doc.save('MI7_Mess_Summary.pdf');
+        }
+
+        /**
+         * Downloads an individual member's meal history.
+         * @param {string} memberName - The name of the member.
+         */
+        function downloadMemberPDF(memberName) {
+            if (!window.jspdf || !meals) {
+                console.error("PDF generator or data not ready.");
+                return;
+            }
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            // 1. Filter and prep data
+            let memberTotalMeals = 0;
+            const mealHistory = [];
+            // Sort meals by date ascending for the report
+            const sortedMeals = [...meals].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            sortedMeals.forEach(day => {
+                const count = Number(day[memberName.toLowerCase()]);
+                if (count > 0) {
+                    mealHistory.push([day.date, count]);
+                    memberTotalMeals += count;
+                }
+            });
+
+            // 2. Add Title
+            doc.setFontSize(18);
+            doc.text("MI7 - Individual Meal History", 14, 22);
+            doc.setFontSize(14);
+            doc.text(`Member: ${memberName}`, 14, 30);
+            
+            // 3. Add Summary
+            doc.setFontSize(12);
+            doc.text(`Total Meals Eaten: ${memberTotalMeals}`, 14, 40);
+
+            // 4. Add Table
+            if (mealHistory.length > 0) {
+                doc.autoTable({
+                    head: [['Date', 'Number of Meals']],
+                    body: mealHistory,
+                    startY: 50,
+                    theme: 'grid',
+                    headStyles: { fillColor: [0, 102, 94] }, // Teal header
+                });
+            } else {
+                doc.text("No meal history found for this member.", 14, 50);
+            }
+
+            // 5. Save
+            doc.save(`MI7_Meal_History_${memberName}.pdf`);
+        }
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Make PDF functions globally accessible for onclick events
+            window.downloadMemberPDF = downloadMemberPDF;
+
+            // Find UI elements
+            summaryView = document.getElementById('summaryView');
+            addMealView = document.getElementById('addMealView');
+            addExpenseView = document.getElementById('addExpenseView');
+            addContributionView = document.getElementById('addContributionView');
+            aiChefView = document.getElementById('aiChefView');
+            
+            summaryLink = document.getElementById('summaryLink');
+            addMealLink = document.getElementById('addMealLink');
+            addExpenseLink = document.getElementById('addExpenseLink');
+            addContributionLink = document.getElementById('addContributionLink');
+            aiChefLink = document.getElementById('aiChefLink');
+            
+            totalExpenseEl = document.getElementById('totalExpense');
+            totalContributionsEl = document.getElementById('totalContributions');
+            totalMealsEl = document.getElementById('totalMeals');
+            mealRateEl = document.getElementById('mealRate');
+            messBalanceEl = document.getElementById('messBalance');
+            
+            summaryTableBody = document.getElementById('summaryTableBody');
+            recentExpensesList = document.getElementById('recentExpensesList');
+            recentContributionsList = document.getElementById('recentContributionsList');
+            
+            addMealForm = document.getElementById('addMealForm');
+            addExpenseForm = document.getElementById('addExpenseForm');
+            addContributionForm = document.getElementById('addContributionForm');
+            userIdDisplay = document.getElementById('userIdDisplay');
+            downloadSummaryBtn = document.getElementById('downloadSummaryBtn');
+
+            // Set up navigation
+            summaryLink.addEventListener('click', () => showView('summary'));
+            addMealLink.addEventListener('click', () => showView('meal'));
+            addExpenseLink.addEventListener('click', () => showView('expense'));
+            addContributionLink.addEventListener('click', () => showView('contribution'));
+            aiChefLink.addEventListener('click', () => showView('aiChef'));
+
+            // Set up form submissions
+            addMealForm.addEventListener('submit', handleAddMeal);
+            addExpenseForm.addEventListener('submit', handleAddExpense);
+            addContributionForm.addEventListener('submit', handleAddContribution);
+            downloadSummaryBtn.addEventListener('click', downloadSummaryPDF);
+            document.getElementById('aiChefForm').addEventListener('submit', handleAiChef);
+
+            try {
+                // Initialize Firebase
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                setLogLevel('Debug');
+
+                // Sign in
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userIdDisplay.textContent = `User ID: ${userId}`;
+                        // User is signed in, now we can set up data listeners
+                        setupListeners();
+                    }
+                });
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+            } catch (error) {
+                console.error("Firebase Init Error:", error);
+                
+                // Check if Firebase is not configured
+                if (!firebaseConfig.projectId) {
+                    console.error("Firebase not configured. Redirecting to setup...");
+                    // Redirect to configuration page
+                    setTimeout(() => {
+                        alert('Firebase configuration is missing. Please set up Firebase credentials.');
+                        window.location.href = 'firebase-setup.html';
+                    }, 1000);
+                } else {
+                    console.error("Connection error:", error.message);
+                    // Show user-friendly error
+                    userIdDisplay.textContent = '❌ Connection Error - Check Console';
+                }
+            }
+            
+            // Show summary view by default
+            showView('summary');
+            // Set default date for forms
+            document.getElementById('mealDate').valueAsDate = new Date();
+            document.getElementById('expenseDate').valueAsDate = new Date();
+            document.getElementById('contributionDate').valueAsDate = new Date();
+        });
+
+        // --- Navigation ---
+        function showView(viewName) {
+            // Hide all views
+            summaryView.classList.add('hidden');
+            addMealView.classList.add('hidden');
+            addExpenseView.classList.add('hidden');
+            addContributionView.classList.add('hidden');
+            aiChefView.classList.add('hidden');
+
+            // Deactivate all links
+            summaryLink.classList.remove('bg-teal-700/50', 'text-white');
+            addMealLink.classList.remove('bg-teal-700/50', 'text-white');
+            addExpenseLink.classList.remove('bg-teal-700/50', 'text-white');
+            addContributionLink.classList.remove('bg-teal-700/50', 'text-white');
+            aiChefLink.classList.remove('bg-teal-700/50', 'text-white');
+            
+            const allLinks = [summaryLink, addMealLink, addExpenseLink, addContributionLink, aiChefLink];
+            allLinks.forEach(link => {
+                link.classList.add('text-teal-100', 'hover:text-white', 'hover:bg-teal-700/50');
+            });
+
+            // Show the selected view and activate its link
+            if (viewName === 'summary') {
+                summaryView.classList.remove('hidden');
+                summaryLink.classList.add('bg-teal-700/50', 'text-white');
+                summaryLink.classList.remove('text-teal-100', 'hover:text-white', 'hover:bg-teal-700/50');
+            } else if (viewName === 'meal') {
+                addMealView.classList.remove('hidden');
+                addMealLink.classList.add('bg-teal-700/50', 'text-white');
+                addMealLink.classList.remove('text-teal-100', 'hover:text-white', 'hover:bg-teal-700/50');
+            } else if (viewName === 'expense') {
+                addExpenseView.classList.remove('hidden');
+                addExpenseLink.classList.add('bg-teal-700/50', 'text-white');
+                addExpenseLink.classList.remove('text-teal-100', 'hover:text-white', 'hover:bg-teal-700/50');
+            } else if (viewName === 'contribution') {
+                addContributionView.classList.remove('hidden');
+                addContributionLink.classList.add('bg-teal-700/50', 'text-white');
+                addContributionLink.classList.remove('text-teal-100', 'hover:text-white', 'hover:bg-teal-700/50');
+            } else if (viewName === 'aiChef') {
+                aiChefView.classList.remove('hidden');
+                aiChefLink.classList.add('bg-teal-700/50', 'text-white');
+                aiChefLink.classList.remove('text-teal-100', 'hover:text-white', 'hover:bg-teal-700/50');
+            }
+        }
+
+        // --- Firebase Listeners ---
+        function setupListeners() {
+            if (!db || !userId) return;
+
+            const expensesPath = `artifacts/${appId}/public/data/expenses`;
+            const contributionsPath = `artifacts/${appId}/public/data/contributions`;
+            const mealsPath = `artifacts/${appId}/public/data/meals`;
+
+            // Listen for expenses
+            const qExpenses = query(collection(db, expensesPath));
+            onSnapshot(qExpenses, (snapshot) => {
+                expenses = [];
+                snapshot.forEach((doc) => {
+                    expenses.push({ id: doc.id, ...doc.data() });
+                });
+                expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+                updateSummary();
+                updateRecentLists();
+            }, (error) => {
+                console.error("Error listening to expenses:", error);
+            });
+            
+            // Listen for contributions
+            const qContributions = query(collection(db, contributionsPath));
+            onSnapshot(qContributions, (snapshot) => {
+                contributions = [];
+                snapshot.forEach((doc) => {
+                    contributions.push({ id: doc.id, ...doc.data() });
+                });
+                contributions.sort((a, b) => new Date(b.date) - new Date(a.date));
+                updateSummary();
+                updateRecentLists();
+            }, (error) => {
+                console.error("Error listening to contributions:", error);
+            });
+
+            // Listen for meals
+            const qMeals = query(collection(db, mealsPath));
+            onSnapshot(qMeals, (snapshot) => {
+                meals = [];
+                snapshot.forEach((doc) => {
+                    meals.push({ id: doc.id, ...doc.data() });
+                });
+                meals.sort((a, b) => new Date(b.date) - new Date(a.date));
+                updateSummary();
+                updateRecentLists();
+            }, (error) => {
+                console.error("Error listening to meals:", error);
+            });
+        }
+
+        // --- Core Logic ---
+        function updateSummary() {
+            console.log('=== BALANCE SHEET UPDATE STARTED ===');
+            console.log('Data sources:', { expensesLength: expenses.length, contributionsLength: contributions.length, mealsLength: meals.length });
+            // Always show summary view when updating summary
+            if (typeof showView === 'function') {
+                showView('summary');
+            }
+            // Verify DOM elements exist
+            if (!summaryTableBody) {
+                summaryTableBody = document.getElementById('summaryTableBody');
+                if (!summaryTableBody) {
+                    console.error('❌ CRITICAL: Cannot find summaryTableBody element in DOM');
+                    return;
+                }
+            }
+            if (!totalExpenseEl) totalExpenseEl = document.getElementById('totalExpense');
+            if (!totalContributionsEl) totalContributionsEl = document.getElementById('totalContributions');
+            if (!totalMealsEl) totalMealsEl = document.getElementById('totalMeals');
+            if (!mealRateEl) mealRateEl = document.getElementById('mealRate');
+            if (!messBalanceEl) messBalanceEl = document.getElementById('messBalance');
+            if (!totalExpenseEl || !totalContributionsEl || !totalMealsEl || !mealRateEl || !messBalanceEl) {
+                console.error('❌ ERROR: One or more metric elements not initialized');
+                return;
+            }
+
+            let totalExpense = 0;
+            let totalContribution = 0;
+            let totalMeals = 0;
+            let memberContributions = {};
+            memberMealCounts = {}; // Reset meal counts
+
+            // Initialize objects with all members
+            members.forEach(member => {
+                memberContributions[member] = 0;
+                memberMealCounts[member] = 0;
+            });
+
+            // Process expenses: sum all amounts
+            console.log('Processing expenses:', expenses);
+            expenses.forEach(expense => {
+                const amount = Number(expense.amount);
+                console.log(`  Expense: ${JSON.stringify(expense)} → Amount: ${amount}`);
+                if (!isNaN(amount) && amount > 0) {
+                    totalExpense += amount;
+                }
+            });
+            
+            // Process contributions: sum by member
+            console.log('Processing contributions:', contributions);
+            contributions.forEach(contrib => {
+                const amount = Number(contrib.amount);
+                const contribMember = contrib.name || '';
+                console.log(`  Contribution: ${contribMember} = ${amount}`);
+                if (!isNaN(amount) && amount > 0) {
+                    totalContribution += amount;
+                    if (memberContributions.hasOwnProperty(contribMember)) {
+                        memberContributions[contribMember] += amount;
+                    }
+                }
+            });
+
+            // Process meals: sum meal counts per member
+            console.log('Processing meals:', meals);
+            meals.forEach((mealDay, dayIdx) => {
+                console.log(`  Day ${dayIdx} (${mealDay.date}):`, mealDay);
+                members.forEach(member => {
+                    const key = member.toLowerCase();
+                    const count = Number(mealDay[key]);
+                    if (!isNaN(count) && count > 0) {
+                        console.log(`    ${member}: ${count} meals`);
+                        memberMealCounts[member] += count;
+                        totalMeals += count;
+                    }
+                });
+            });
+
+            console.log('=== CALCULATIONS ===');
+            console.log('totalExpense:', totalExpense);
+            console.log('totalContribution:', totalContribution);
+            console.log('totalMeals:', totalMeals);
+            console.log('memberMealCounts:', memberMealCounts);
+            console.log('memberContributions:', memberContributions);
+
+            // Calculate meal rate: cost per meal
+            const mealRate = (totalMeals > 0) ? (totalExpense / totalMeals) : 0;
+            
+            // Calculate mess balance: surplus/deficit
+            const messBalance = totalContribution - totalExpense;
+
+            console.log('mealRate:', mealRate);
+            console.log('messBalance:', messBalance);
+
+            // Update UI with summary metrics
+            totalExpenseEl.textContent = totalExpense.toFixed(2);
+            totalContributionsEl.textContent = totalContribution.toFixed(2);
+            totalMealsEl.textContent = totalMeals;
+            mealRateEl.textContent = mealRate.toFixed(2);
+            messBalanceEl.textContent = messBalance.toFixed(2);
+            
+            console.log('✅ Metrics updated');
+
+            // Color-code mess balance
+            const messBalanceElParent = messBalanceEl.parentElement;
+            messBalanceElParent.classList.remove('text-green-600', 'text-red-600', 'text-gray-900');
+            if (messBalance < 0) {
+                messBalanceElParent.classList.add('text-red-600');
+            } else if (messBalance > 0) {
+                messBalanceElParent.classList.add('text-green-600');
+            } else {
+                messBalanceElParent.classList.add('text-gray-900');
+            }
+
+            // Update summary table: show per-member contribution, meals, cost, and balance
+            console.log('=== BUILDING SUMMARY TABLE ===');
+            summaryTableBody.innerHTML = ''; // Clear existing rows
+            
+            members.forEach(member => {
+                const memberContrib = memberContributions[member] || 0;
+                const memberMeals = memberMealCounts[member] || 0;
+                const mealCost = memberMeals * mealRate;
+                const balance = memberContrib - mealCost;
+                
+                console.log(`${member}: Contrib=${memberContrib}, Meals=${memberMeals}, MealCost=${mealCost}, Balance=${balance}`);
+                
+                // Determine balance color
+                const balanceColor = balance > 0 ? 'text-green-600' : (balance < 0 ? 'text-red-600' : 'text-gray-700');
+                const balanceSign = balance > 0 ? '+' : '';
+
+                const row = `
+                    <tr class="border-b border-gray-200 hover:bg-gray-50">
+                        <td class="py-4 px-4 text-left font-medium text-gray-800">${member}</td>
+                        <td class="py-4 px-4 text-right text-gray-700">৳${memberContrib.toFixed(2)}</td>
+                        <td class="py-4 px-4 text-right text-gray-700">${memberMeals}</td>
+                        <td class="py-4 px-4 text-right text-gray-700">৳${mealCost.toFixed(2)}</td>
+                        <td class="py-4 px-4 text-right font-semibold ${balanceColor}">${balanceSign}৳${balance.toFixed(2)}</td>
+                        <td class="py-4 px-4 text-center">
+                            <button onclick="downloadMemberPDF('${member}')" class="text-teal-600 hover:text-teal-800 p-2 rounded-full hover:bg-teal-100 transition duration-150" title="Download ${member}'s Meal History">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+                summaryTableBody.innerHTML += row;
+            });
+            
+            console.log('=== BALANCE SHEET UPDATE COMPLETE ===');
+        }
+        
+        function updateRecentLists() {
+            // Update recent expenses list (max 5)
+            recentExpensesList.innerHTML = '';
+            expenses.slice(0, 5).forEach(expense => {
+                const li = document.createElement('li');
+                li.className = 'flex justify-between items-center p-3 bg-gray-50 rounded-xl mb-2';
+                li.innerHTML = `
+                    <div>
+                        <span class="font-medium text-gray-800">${expense.description}</span>
+                        <span class="text-gray-600 text-sm"> (${expense.date})</span>
+                        <p class="text-gray-500 text-sm">Spent by: ${expense.spentBy}</p>
+                    </div>
+                    <span class="font-semibold text-red-600">-৳${Number(expense.amount).toFixed(2)}</span>
+                `;
+                recentExpensesList.appendChild(li);
+            });
+            if (expenses.length === 0) {
+                recentExpensesList.innerHTML = '<li class="text-gray-500 text-center p-3">No expenses logged yet.</li>';
+            }
+
+            // Update recent contributions list (max 5)
+            recentContributionsList.innerHTML = '';
+            contributions.slice(0, 5).forEach(contrib => {
+                const li = document.createElement('li');
+                li.className = 'flex justify-between items-center p-3 bg-gray-50 rounded-xl mb-2';
+                li.innerHTML = `
+                    <div>
+                        <span class="font-medium">${contrib.name}</span>
+                        <span class="text-gray-600 text-sm"> (${contrib.date})</span>
+                    </div>
+                    <span class="font-semibold text-green-600">+৳${Number(contrib.amount).toFixed(2)}</span>
+                `;
+                recentContributionsList.appendChild(li);
+            });
+            if (contributions.length === 0) {
+                recentContributionsList.innerHTML = '<li class="text-gray-500 text-center p-3">No contributions logged yet.</li>';
+            }
+        }
+
+        // --- Form Handlers ---
+        async function handleAddExpense(e) {
+            e.preventDefault();
+            const form = e.target;
+            const button = form.querySelector('button');
+            button.disabled = true;
+            button.textContent = 'Saving...';
+
+            const expenseData = {
+                date: form.expenseDate.value,
+                spentBy: form.spentBy.value,
+                description: form.expenseDescription.value,
+                amount: Number(form.expenseAmount.value),
+                addedBy: userId
+            };
+            
+            try {
+                if (!db) {
+                    throw new Error('Database not initialized. Please set up Firebase configuration.');
+                }
+                
+                const expensesPath = `artifacts/${appId}/public/data/expenses`;
+                const docRef = await addDoc(collection(db, expensesPath), expenseData);
+                console.log(`✅ Expense saved with ID: ${docRef.id}`);
+                
+                form.reset();
+                document.getElementById('expenseDate').valueAsDate = new Date();
+                alert('✅ Expense saved successfully!');
+                showView('summary');
+            } catch (error) {
+                console.error("Error adding expense:", error);
+                let errorMsg = error.message;
+                if (error.message.includes('permission') || error.message.includes('Permission') || error.message.includes('PERMISSION')) {
+                    errorMsg = 'Permission Denied. Check Firestore security rules in Firebase Console.';
+                }
+                alert(`❌ Error: ${errorMsg}`);
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Save Expense';
+            }
+        }
+        
+        async function handleAddContribution(e) {
+            e.preventDefault();
+            const form = e.target;
+            const button = form.querySelector('button');
+            button.disabled = true;
+            button.textContent = 'Saving...';
+
+            const contributionData = {
+                date: form.contributionDate.value,
+                name: form.contributionName.value,
+                amount: Number(form.contributionAmount.value),
+                addedBy: userId
+            };
+            
+            try {
+                if (!db) {
+                    throw new Error('Database not initialized. Please set up Firebase configuration.');
+                }
+                
+                const contributionsPath = `artifacts/${appId}/public/data/contributions`;
+                const docRef = await addDoc(collection(db, contributionsPath), contributionData);
+                console.log(`✅ Contribution saved with ID: ${docRef.id}`);
+                
+                form.reset();
+                document.getElementById('contributionDate').valueAsDate = new Date();
+                alert('✅ Contribution saved successfully!');
+                showView('summary');
+            } catch (error) {
+                console.error("Error adding contribution:", error);
+                let errorMsg = error.message;
+                if (error.message.includes('permission') || error.message.includes('Permission') || error.message.includes('PERMISSION')) {
+                    errorMsg = 'Permission Denied. Check Firestore security rules in Firebase Console.';
+                }
+                alert(`❌ Error: ${errorMsg}`);
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Save Contribution';
+            }
+        }
+
+        async function handleAddMeal(e) {
+            e.preventDefault();
+            const form = e.target;
+            const button = form.querySelector('button');
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Saving...';
+            }
+
+            try {
+                // Validate date
+                if (!form.mealDate || !form.mealDate.value) {
+                    alert('Please select a date.');
+                    return;
+                }
+
+                const mealData = {
+                    date: form.mealDate.value,
+                    addedBy: userId || 'anonymous'
+                };
+
+                // Check that all members have input fields and collect their meal counts
+                const missingMembers = [];
+                members.forEach(member => {
+                    const key = member.toLowerCase();
+                    const input = form.elements ? form.elements[key] : form[key];
+                    
+                    if (!input) {
+                        missingMembers.push(member);
+                        mealData[key] = 0; // Default to 0 if missing
+                    } else {
+                        const raw = input.value || '0';
+                        const num = Number(raw);
+                        mealData[key] = isNaN(num) ? 0 : num;
+                    }
+                });
+
+                // Warn if any members were missing from form
+                if (missingMembers.length > 0) {
+                    console.warn(`Warning: Missing meal inputs for: ${missingMembers.join(', ')}. Setting to 0.`);
+                }
+
+                // Validate that at least one meal was entered
+                const totalMeals = members.reduce((sum, member) => sum + mealData[member.toLowerCase()], 0);
+                if (totalMeals === 0) {
+                    alert('Please enter at least one meal for someone.');
+                    return;
+                }
+
+                console.log('Saving meal data:', mealData);
+
+                // Check database connection
+                if (!db) {
+                    throw new Error('Database not initialized. Please set up Firebase configuration.');
+                }
+
+                const mealsPath = `artifacts/${appId}/public/data/meals`;
+                console.log(`Attempting to save meals to: ${mealsPath}`);
+                
+                // Add document with permission error handling
+                const docRef = await addDoc(collection(db, mealsPath), mealData);
+                console.log(`✅ Meals saved successfully with ID: ${docRef.id}`);
+                
+                form.reset();
+                const md = document.getElementById('mealDate');
+                if (md) md.valueAsDate = new Date();
+                
+                alert('✅ Meals saved successfully!');
+                showView('summary');
+            } catch (error) {
+                console.error("Error adding meals:", error);
+                
+                // Enhanced error messaging for permission issues
+                let errorMsg = error.message;
+                if (error.message.includes('permission') || error.message.includes('Permission') || error.message.includes('PERMISSION')) {
+                    errorMsg = `Permission Denied: ${error.message}\n\nFix:\n1. Go to Firebase Console\n2. Firestore Database → Rules\n3. Apply the rules from FIREBASE_RULES.md\n4. Click Publish`;
+                } else if (error.message.includes('not-initialized')) {
+                    errorMsg = 'Firebase Database not initialized. Please set up Firebase configuration using firebase-setup.html';
+                } else if (error.code === 'permission-denied') {
+                    errorMsg = 'Permission Denied. Check Firestore security rules in Firebase Console.';
+                }
+                
+                alert(`❌ Error: ${errorMsg}`);
+                console.error('Full error object:', error);
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = 'Save Meals';
+                }
+            }
+        }
+
+        // --- Gemini API ---
+
+        /**
+         * Fetches data with exponential backoff.
+         */
+        async function fetchWithBackoff(url, options, retries = 3, delay = 1000) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    if (response.status === 429 && retries > 0) {
+                        // Throttled, wait and retry
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return fetchWithBackoff(url, options, retries - 1, delay * 2);
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response;
+            } catch (error) {
+                if (retries > 0) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return fetchWithBackoff(url, options, retries - 1, delay * 2);
+                }
+                throw error;
+            }
+        }
+        
+        /**
+         * Handles the AI Chef form submission.
+         */
+        async function handleAiChef(e) {
+            e.preventDefault();
+            const form = e.target;
+            const promptInput = form.querySelector('textarea');
+            const button = form.querySelector('button');
+            const spinner = document.getElementById('aiChefSpinner');
+            const resultsDiv = document.getElementById('aiChefResult');
+            
+            const userPrompt = promptInput.value;
+            if (!userPrompt) return;
+
+            // Set loading state
+            button.disabled = true;
+            spinner.classList.remove('hidden');
+            resultsDiv.innerHTML = '';
+            
+            const systemPrompt = "You are 'MI7 Chef', a helpful assistant for a group of 7 friends in Bangladesh managing their meals. Your goal is to provide concise, practical, and budget-friendly meal ideas, recipes, and shopping lists. *You MUST search the web (using your available tools) to find relevant YouTube recipe videos or blog post links and include them in your response.* Keep your answers helpful and formatted with simple HTML (like <h3>, <p>, <ul>, <li>, and <a> for links).";
+            const apiKey = ""; // API key is handled by the environment
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userPrompt }] }],
+                // Enable Google Search grounding
+                tools: [{ "google_search": {} }],
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+            };
+            
+            try {
+                const response = await fetchWithBackoff(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (text) {
+                        resultsDiv.innerHTML = text; // Assumes Gemini returns safe HTML as requested
+                    } else {
+                        throw new Error("No text content found in response.");
+                    }
+                } else {
+                    const errorResult = await response.json();
+                    console.error("Gemini API Error:", errorResult);
+                    resultsDiv.innerHTML = `<p class="text-red-500">Error: Could not get a response. ${errorResult?.error?.message || ''}</p>`;
+                }
+            } catch (error) {
+                console.error("Fetch Error:", error);
+                resultsDiv.innerHTML = `<p class="text-red-500">Error: ${error.message}. Please check your connection and try again.</p>`;
+            } finally {
+                // Restore state
+                button.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+    </script>
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        /* Custom Tailwind styles */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0d9488; /* Teal color */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Focus ring color */
+        input:focus, select:focus, textarea:focus {
+            --tw-ring-color: #0d9488;
+        }
+        
+        /* Styles for Gemini output */
+        #aiChefResult h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: rgb(17, 24, 39);
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        #aiChefResult ul {
+            list-style-type: disc;
+            margin-left: 1.25rem;
+            color: rgb(55, 65, 81);
+            margin-bottom: 1rem;
+        }
+        #aiChefResult ul li {
+            margin-bottom: 0.25rem;
+        }
+        #aiChefResult p {
+            color: rgb(55, 65, 81);
+            margin-bottom: 0.75rem;
+        }
+
+    </style>
+    
+    <!-- Import Inter font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body class="bg-gray-50">
+
+    <div id="appWrapper">
+        <!-- Header -->
+        <nav class="bg-gradient-to-r from-teal-700 to-teal-600 shadow-lg">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <!-- Logo/Title -->
+                    <div class="flex-shrink-0">
+                        <span class="text-white text-3xl font-bold tracking-tight">MI7</span>
+                    </div>
+                    <!-- Navigation Links -->
+                    <div class="hidden md:block">
+                        <div class="ml-10 flex items-baseline space-x-2">
+                            <button id="summaryLink" class="text-teal-100 hover:text-white hover:bg-teal-700/50 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150">Summary</button>
+                            <button id="addMealLink" class="text-teal-100 hover:text-white hover:bg-teal-700/50 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150">Add Meal</button>
+                            <button id="addContributionLink" class="text-teal-100 hover:text-white hover:bg-teal-700/50 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150">Add Contribution</button>
+                            <button id="addExpenseLink" class="text-teal-100 hover:text-white hover:bg-teal-700/50 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150">Add Expense</button>
+                            <button id="aiChefLink" class="text-teal-100 hover:text-white hover:bg-teal-700/50 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150">AI Chef</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            
+            <!-- User ID Display -->
+            <div class="px-4 py-2 mb-6 bg-white shadow-sm rounded-xl border border-gray-200 sm:px-6">
+                <p id="userIdDisplay" class="text-sm text-gray-500">Connecting...</p>
+            </div>
+
+            <!-- View: Summary -->
+            <div id="summaryView">
+                <!-- Key Metrics -->
+                <div class="mb-6">
+                    <h2 class="text-2xl font-semibold text-gray-900 mb-4 px-1">Key Metrics</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                         <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+                            <h3 class="text-sm font-medium text-gray-500">Total Contributions</h3>
+                            <p class="mt-1 text-3xl font-semibold text-green-600">৳<span id="totalContributions">0.00</span></p>
+                        </div>
+                        <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+                            <h3 class="text-sm font-medium text-gray-500">Total Expense</h3>
+                            <p class="mt-1 text-3xl font-semibold text-red-600">৳<span id="totalExpense">0.00</span></p>
+                        </div>
+                        <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+                            <h3 class="text-sm font-medium text-gray-500">Mess Balance (Cash)</h3>
+                            <p class="mt-1 text-3xl font-semibold text-gray-900">৳<span id="messBalance">0.00</span></p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-6">
+                     <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+                            <h3 class="text-sm font-medium text-gray-500">Total Meals</h3>
+                            <p class="mt-1 text-3xl font-semibold text-gray-900"><span id="totalMeals">0</span></p>
+                        </div>
+                        <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+                            <h3 class="text-sm font-medium text-gray-500">Meal Rate</h3>
+                            <p class="mt-1 text-3xl font-semibold text-gray-900">৳<span id="mealRate">0.00</span></p>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Balance Sheet -->
+                <div class="mb-6 bg-white shadow-lg rounded-2xl overflow-hidden border border-gray-100">
+                    <div class="flex flex-col sm:flex-row justify-between sm:items-center p-6">
+                        <h2 class="text-2xl font-semibold text-gray-900 mb-4 sm:mb-0">Member Balance Sheet</h2>
+                        <button id="downloadSummaryBtn" class="flex items-center justify-center space-x-2 px-4 py-2 bg-teal-600 text-white rounded-xl shadow-md hover:bg-teal-700 transition duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            <span>Download Summary</span>
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table id="summaryReportTable" class="min-w-full">
+                            <thead class="bg-gray-100 border-b border-gray-200">
+                                <tr>
+                                    <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                    <th class="py-3 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Contribution</th>
+                                    <th class="py-3 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Meals Eaten</th>
+                                    <th class="py-3 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Meal Cost</th>
+                                    <th class="py-3 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Balance (Get / Give)</th>
+                                    <th class="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="summaryTableBody" class="divide-y divide-gray-200">
+                                <!-- Rows will be injected by JS -->
+                                <tr><td colspan="6" class="p-6 text-center text-gray-500">
+                                    <div class="loader mx-auto"></div>
+                                    <p class="mt-2">Loading data...</p>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Recent Activity -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white shadow-lg rounded-2xl border border-gray-100">
+                        <h2 class="text-xl font-semibold text-gray-900 p-6 border-b border-gray-200">Recent Contributions</h2>
+                        <ul id="recentContributionsList" class="p-6 space-y-3 max-h-96 overflow-y-auto">
+                            <!-- Contributions will be injected by JS -->
+                        </ul>
+                    </div>
+                    <div class="bg-white shadow-lg rounded-2xl border border-gray-100">
+                        <h2 class="text-xl font-semibold text-gray-900 p-6 border-b border-gray-200">Recent Expenses</h2>
+                        <ul id="recentExpensesList" class="p-6 space-y-3 max-h-96 overflow-y-auto">
+                            <!-- Expenses will be injected by JS -->
+                        </ul>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- View: Add Meal -->
+            <div id="addMealView" class="hidden">
+                <div class="bg-white shadow-lg rounded-2xl border border-gray-100 p-6 md:p-8 max-w-2xl mx-auto">
+                    <h2 class="text-2xl font-semibold text-gray-900 mb-6">Add Daily Meals</h2>
+                    <form id="addMealForm" class="space-y-6">
+                        <div>
+                            <label for="mealDate" class="block text-sm font-medium text-gray-700">Date</label>
+                            <input type="date" id="mealDate" name="mealDate" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                        </div>
+
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                            <!-- Meal inputs will be generated for each member -->
+                            <script>
+                                const mealFormContainer = document.currentScript.parentElement;
+                                
+                                // Function to generate meal inputs for all members
+                                function generateMealInputs() {
+                                    if (typeof members === 'undefined' || !members.length) {
+                                        console.warn('members array not available in meal form generator.');
+                                        return;
+                                    }
+                                    members.forEach(member => {
+                                        const id = member.toLowerCase();
+                                        const div = document.createElement('div');
+                                        div.innerHTML = `
+                                            <label for="${id}" class="block text-sm font-medium text-gray-700">${member}</label>
+                                            <input type="number" id="${id}" name="${id}" min="0" max="10" value="0" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                                        `;
+                                        mealFormContainer.appendChild(div);
+                                    });
+                                    console.log(`Generated meal inputs for ${members.length} members.`);
+                                }
+                                
+                                // Try immediately; if members isn't defined yet, retry on DOMContentLoaded
+                                if (typeof members !== 'undefined' && members.length) {
+                                    generateMealInputs();
+                                } else {
+                                    document.addEventListener('DOMContentLoaded', generateMealInputs);
+                                }
+                            </script>
+                        </div>
+
+                        <div>
+                            <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:bg-gray-400 transition duration-150">
+                                Save Meals
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- View: Add Contribution -->
+            <div id="addContributionView" class="hidden">
+                <div class="bg-white shadow-lg rounded-2xl border border-gray-100 p-6 md:p-8 max-w-lg mx-auto">
+                    <h2 class="text-2xl font-semibold text-gray-900 mb-6">Add Member Contribution</h2>
+                    <form id="addContributionForm" class="space-y-6">
+                        <div>
+                            <label for="contributionDate" class="block text-sm font-medium text-gray-700">Date</label>
+                            <input type="date" id="contributionDate" name="contributionDate" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                        </div>
+
+                        <div>
+                            <label for="contributionName" class="block text-sm font-medium text-gray-700">Name</label>
+                            <select id="contributionName" name="contributionName" required class="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                                <option value="">Select a member</option>
+                                <!-- Options will be generated by JS -->
+                                <script>
+                                    const membersForContrib = ['Uday', 'Abrar', 'Muntasir', 'Arafat', 'Jobayer', 'Abid', 'Ankon'];
+                                    const selectElContrib = document.getElementById('contributionName');
+                                    membersForContrib.forEach(member => {
+                                        const option = document.createElement('option');
+                                        option.value = member;
+                                        option.textContent = member;
+                                        selectElContrib.appendChild(option);
+                                    });
+                                </script>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label for="contributionAmount" class="block text-sm font-medium text-gray-700">Amount</label>
+                            <div class="mt-1 relative rounded-xl shadow-sm">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <span class="text-gray-500 sm:text-sm">৳</span>
+                                </div>
+                                <input type="number" id="contributionAmount" name="contributionAmount" min="0" step="0.01" required placeholder="0.00" class="block w-full pl-7 pr-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                            </div>
+                        </div>
+
+                        <div>
+                            <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400 transition duration-150">
+                                Save Contribution
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- View: Add Expense -->
+            <div id="addExpenseView" class="hidden">
+                <div class="bg-white shadow-lg rounded-2xl border border-gray-100 p-6 md:p-8 max-w-lg mx-auto">
+                    <h2 class="text-2xl font-semibold text-gray-900 mb-6">Add Mess Expense</h2>
+                    <form id="addExpenseForm" class="space-y-6">
+                        <div>
+                            <label for="expenseDate" class="block text-sm font-medium text-gray-700">Date</label>
+                            <input type="date" id="expenseDate" name="expenseDate" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                        </div>
+
+                        <div>
+                            <label for="spentBy" class="block text-sm font-medium text-gray-700">Spent By (Who paid?)</label>
+                            <select id="spentBy" name="spentBy" required class="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                                <option value="">Select a member</option>
+                                <!-- Options will be generated by JS -->
+                                <script>
+                                    const membersForExpense = ['Uday', 'Abrar', 'Muntasir', 'Arafat', 'Jobayer', 'Abid', 'Ankon'];
+                                    const selectEl = document.getElementById('spentBy');
+                                    membersForExpense.forEach(member => {
+                                        const option = document.createElement('option');
+                                        option.value = member;
+                                        option.textContent = member;
+                                        selectEl.appendChild(option);
+                                    });
+                                </script>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label for="expenseDescription" class="block text-sm font-medium text-gray-700">Description (e.g., Rice, Gas Bill)</label>
+                            <input type="text" id="expenseDescription" name="expenseDescription" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                        </div>
+                        
+                        <div>
+                            <label for="expenseAmount" class="block text-sm font-medium text-gray-700">Amount</label>
+                            <div class="mt-1 relative rounded-xl shadow-sm">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <span class="text-gray-500 sm:text-sm">৳</span>
+                                </div>
+                                <input type="number" id="expenseAmount" name="expenseAmount" min="0" step="0.01" required placeholder="0.00" class="block w-full pl-7 pr-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm">
+                            </div>
+                        </div>
+
+                        <div>
+                            <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:bg-gray-400 transition duration-150">
+                                Save Expense
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- View: AI Chef -->
+            <div id="aiChefView" class="hidden">
+                <div class="bg-white shadow-lg rounded-2xl border border-gray-100 p-6 md:p-8 max-w-2xl mx-auto">
+                    <h2 class="text-2xl font-semibold text-gray-900 mb-2">AI Chef Assistant</h2>
+                    <p class="text-gray-600 mb-6">Ask for meal ideas, recipes, or shopping lists!</p>
+                    
+                    <form id="aiChefForm" class="space-y-4">
+                        <div>
+                            <label for="aiChefPrompt" class="block text-sm font-medium text-gray-700">Your Request</label>
+                            <textarea id="aiChefPrompt" name="aiChefPrompt" rows="3" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 sm:text-sm" placeholder="e.g., What can I cook for 7 people with 500 Taka?"></textarea>
+                        </div>
+                        
+                        <div class="flex items-center space-x-4">
+                            <button type="submit" class="flex items-center justify-center space-x-2 w-full sm:w-auto px-6 py-3 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:bg-gray-400 transition duration-150">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16v4m-2-2h4m6 17v4m-2-2h4M12 3v10m0 0a3 3 0 00-3 3v4m3-7a3 3 0 013 3v4"></path></svg>
+                                <span>Generate Ideas</span>
+                            </button>
+                            <div id="aiChefSpinner" class="loader hidden"></div>
+                        </div>
+                    </form>
+                    
+                    <!-- AI Results Area -->
+                    <div id="aiChefResult" class="mt-6 border-t border-gray-200 pt-6">
+                        <!-- Gemini results will be injected here -->
+                    </div>
+                </div>
+            </div>
+
+        </main>
+        
+        <!-- Footer -->
+        <footer class="text-center py-8 mt-12 text-gray-500 text-sm border-t border-gray-200">
+            © 2025 MI7 Meal Manager. All rights reserved.
+        </footer>
+        
+        <!-- Mobile Bottom Navigation -->
+        <nav class="md:hidden sticky bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg flex justify-around">
+            <button onclick="document.getElementById('summaryLink').click()" class="flex-1 flex flex-col items-center justify-center p-2 text-teal-600" title="Summary">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <span class="text-xs font-medium">Summary</span>
+            </button>
+            <button onclick="document.getElementById('addMealLink').click()" class="flex-1 flex flex-col items-center justify-center p-2 text-gray-600" title="Add Meal">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m4 0h1M3 7h18M3 13h18M3 16h18M3 19h18"></path></svg>
+                <span class="text-xs font-medium">Meal</span>
+            </button>
+            <button onclick="document.getElementById('addContributionLink').click()" class="flex-1 flex flex-col items-center justify-center p-2 text-gray-600" title="Add Contribution">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.105 0 2 .895 2 2s-.895 2-2 2-2-.895-2-2 .895-2 2-2zm0 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.105 0 2 .895 2 2s-.895 2-2 2-2-.895-2-2 .895-2 2-2z"></path></svg>
+                <span class="text-xs font-medium">Contr.</span>
+            </button>
+            <button onclick="document.getElementById('addExpenseLink').click()" class="flex-1 flex flex-col items-center justify-center p-2 text-gray-600" title="Add Expense">
+                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                <span class="text-xs font-medium">Exp.</span>
+            </button>
+            <button onclick="document.getElementById('aiChefLink').click()" class="flex-1 flex flex-col items-center justify-center p-2 text-gray-600" title="AI Chef">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16v4m-2-2h4m6 17v4m-2-2h4M12 3v10m0 0a3 3 0 00-3 3v4m3-7a3 3 0 013 3v4"></path></svg>
+                <span class="text-xs font-medium">AI Chef</span>
+            </button>
+        </nav>
+        
+        <!-- Spacer for mobile nav -->
+        <div class="h-20 md:hidden"></div>
+        
+    </div>
+
+</body>
+</html>

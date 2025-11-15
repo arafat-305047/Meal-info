@@ -1,0 +1,10 @@
+# Ignore private configuration and build output
+/private/
+/dist/
+
+# Node modules (if you run npm install locally)
+node_modules/
+
+# Optional: OS files
+.DS_Store
+Thumbs.db
